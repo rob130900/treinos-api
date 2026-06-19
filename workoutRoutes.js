@@ -5,20 +5,27 @@ import { authRequired } from './authMiddleware.js';
 const router = Router();
 router.use(authRequired);
 
+const TZ = 'America/Sao_Paulo';
+
 async function getWorkoutFull(workoutId) {
   const w = await query('SELECT * FROM workouts WHERE id = $1', [workoutId]);
   if (w.rows.length === 0) return null;
   const workout = w.rows[0];
 
   const ex = await query(
-    'SELECT * FROM exercises WHERE workout_id = $1 ORDER BY order_index, id',
+    `SELECT e.*, (el.id IS NOT NULL) AS completed
+       FROM exercises e
+       LEFT JOIN exercise_logs el ON el.exercise_id = e.id
+      WHERE e.workout_id = $1
+      ORDER BY e.order_index, e.id`,
     [workoutId]
   );
-  const log = await query('SELECT completed_at FROM workout_logs WHERE workout_id = $1', [workoutId]);
+  const log = await query('SELECT completed_at, duration_seconds FROM workout_logs WHERE workout_id = $1', [workoutId]);
 
   workout.exercises = ex.rows;
   workout.completed = log.rows.length > 0;
   workout.completed_at = log.rows[0]?.completed_at || null;
+  workout.duration_seconds = log.rows[0]?.duration_seconds || null;
   return workout;
 }
 
@@ -56,12 +63,13 @@ router.post('/', async (req, res) => {
         if (!e.name) continue;
         await client.query(
           `INSERT INTO exercises
-             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, order_index)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
             e.notes || null, e.image_url || null, e.image_url2 || null,
-            e.video_id || null, e.instructions || null, e.muscle_group || null, i,
+            e.video_id || null, e.instructions || null, e.muscle_group || null,
+            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i,
           ]
         );
       }
@@ -85,7 +93,10 @@ router.get('/', async (req, res) => {
     if (req.user.role === 'student') {
       rows = (await query(
         `SELECT w.*,
-                (SELECT COUNT(*) FROM workout_logs wl WHERE wl.workout_id = w.id) > 0 AS completed
+                (SELECT COUNT(*) FROM workout_logs wl WHERE wl.workout_id = w.id) > 0 AS completed,
+                (SELECT wl.completed_at FROM workout_logs wl WHERE wl.workout_id = w.id) AS completed_at,
+                (SELECT wl.duration_seconds FROM workout_logs wl WHERE wl.workout_id = w.id) AS duration_seconds,
+                (SELECT COUNT(*) FROM exercises e WHERE e.workout_id = w.id) AS exercise_count
            FROM workouts w
           WHERE w.student_id = $1
           ORDER BY w.scheduled_date NULLS LAST, w.created_at DESC`,
@@ -95,7 +106,8 @@ router.get('/', async (req, res) => {
       const studentFilter = req.query.student_id ? Number(req.query.student_id) : null;
       rows = (await query(
         `SELECT w.*, u.name AS student_name,
-                (SELECT COUNT(*) FROM workout_logs wl WHERE wl.workout_id = w.id) > 0 AS completed
+                (SELECT COUNT(*) FROM workout_logs wl WHERE wl.workout_id = w.id) > 0 AS completed,
+                (SELECT COUNT(*) FROM exercises e WHERE e.workout_id = w.id) AS exercise_count
            FROM workouts w
            JOIN users u ON u.id = w.student_id
           WHERE w.trainer_id = $1
@@ -124,6 +136,82 @@ router.get('/me/progress', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Erro ao buscar progresso.' });
+  }
+});
+
+// Dashboard do aluno: semana, streak, ultimo treino, proximo treino
+router.get('/me/dashboard', async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ error: 'Apenas para alunos.' });
+    const uid = req.user.id;
+
+    const totals = (await query(
+      `SELECT
+         (SELECT COUNT(*) FROM workouts WHERE student_id = $1)     AS total,
+         (SELECT COUNT(*) FROM workout_logs WHERE student_id = $1) AS completed`,
+      [uid]
+    )).rows[0];
+
+    const week = (await query(
+      `SELECT COUNT(*) AS c FROM workout_logs
+        WHERE student_id = $1
+          AND date_trunc('week', completed_at AT TIME ZONE $2)
+            = date_trunc('week', NOW() AT TIME ZONE $2)`,
+      [uid, TZ]
+    )).rows[0];
+
+    const days = (await query(
+      `SELECT DISTINCT to_char((completed_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS d
+         FROM workout_logs WHERE student_id = $1
+        ORDER BY d DESC`,
+      [uid, TZ]
+    )).rows.map((r) => r.d);
+
+    const last = (await query(
+      `SELECT w.id, w.title, wl.completed_at, wl.duration_seconds
+         FROM workout_logs wl JOIN workouts w ON w.id = wl.workout_id
+        WHERE wl.student_id = $1
+        ORDER BY wl.completed_at DESC LIMIT 1`,
+      [uid]
+    )).rows[0] || null;
+
+    const next = (await query(
+      `SELECT w.id, w.title, w.scheduled_date,
+              (SELECT COUNT(*) FROM exercises e WHERE e.workout_id = w.id) AS exercise_count
+         FROM workouts w
+        WHERE w.student_id = $1
+          AND NOT EXISTS (SELECT 1 FROM workout_logs wl WHERE wl.workout_id = w.id)
+        ORDER BY w.scheduled_date NULLS LAST, w.created_at
+        LIMIT 1`,
+      [uid]
+    )).rows[0] || null;
+
+    // streak: dias consecutivos terminando hoje ou ontem
+    const set = new Set(days);
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
+    const prev = (s) => {
+      const dt = new Date(s + 'T00:00:00Z');
+      dt.setUTCDate(dt.getUTCDate() - 1);
+      return dt.toISOString().slice(0, 10);
+    };
+    let streak = 0;
+    let cursor = todayStr;
+    if (!set.has(cursor)) cursor = prev(cursor);
+    while (set.has(cursor)) { streak++; cursor = prev(cursor); }
+
+    const total = Number(totals.total);
+    const weeklyGoal = Math.min(Math.max(total, 1), 7);
+
+    return res.json({
+      totals: { total, completed: Number(totals.completed) },
+      week: { completed: Number(week.c), goal: weeklyGoal },
+      streak,
+      lastWorkout: last,
+      nextWorkout: next,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao carregar painel.' });
   }
 });
 
@@ -161,21 +249,62 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// ---- Conclusao por exercicio (treino guiado) ----
+async function ownsWorkout(workoutId, studentId) {
+  const w = await query('SELECT id FROM workouts WHERE id = $1 AND student_id = $2', [workoutId, studentId]);
+  return w.rows.length > 0;
+}
+
+router.post('/:id/exercises/:exId/complete', async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ error: 'Apenas o aluno.' });
+    const workoutId = Number(req.params.id);
+    const exId = Number(req.params.exId);
+    if (!(await ownsWorkout(workoutId, req.user.id))) return res.status(404).json({ error: 'Treino nao encontrado.' });
+
+    await query(
+      `INSERT INTO exercise_logs (exercise_id, workout_id, student_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (exercise_id, student_id) DO NOTHING`,
+      [exId, workoutId, req.user.id]
+    );
+    return res.json({ ok: true, completed: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao concluir exercicio.' });
+  }
+});
+
+router.delete('/:id/exercises/:exId/complete', async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ error: 'Apenas o aluno.' });
+    await query(
+      'DELETE FROM exercise_logs WHERE exercise_id = $1 AND student_id = $2',
+      [Number(req.params.exId), req.user.id]
+    );
+    return res.json({ ok: true, completed: false });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao desmarcar exercicio.' });
+  }
+});
+
 router.post('/:id/complete', async (req, res) => {
   try {
     if (req.user.role !== 'student') {
       return res.status(403).json({ error: 'Apenas o aluno pode concluir treinos.' });
     }
     const workoutId = Number(req.params.id);
+    const duration = req.body?.duration_seconds != null ? Number(req.body.duration_seconds) : null;
 
-    const w = await query('SELECT id FROM workouts WHERE id = $1 AND student_id = $2', [workoutId, req.user.id]);
-    if (w.rows.length === 0) return res.status(404).json({ error: 'Treino nao encontrado.' });
+    if (!(await ownsWorkout(workoutId, req.user.id))) return res.status(404).json({ error: 'Treino nao encontrado.' });
 
     await query(
-      `INSERT INTO workout_logs (workout_id, student_id, note)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (workout_id) DO NOTHING`,
-      [workoutId, req.user.id, req.body?.note || null]
+      `INSERT INTO workout_logs (workout_id, student_id, note, duration_seconds)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (workout_id) DO UPDATE
+         SET completed_at = NOW(), duration_seconds = COALESCE(EXCLUDED.duration_seconds, workout_logs.duration_seconds)`,
+      [workoutId, req.user.id, req.body?.note || null, duration]
     );
 
     return res.json({ ok: true, completed: true });
@@ -190,7 +319,9 @@ router.delete('/:id/complete', async (req, res) => {
     if (req.user.role !== 'student') {
       return res.status(403).json({ error: 'Apenas o aluno pode alterar isso.' });
     }
-    await query('DELETE FROM workout_logs WHERE workout_id = $1 AND student_id = $2', [Number(req.params.id), req.user.id]);
+    const workoutId = Number(req.params.id);
+    await query('DELETE FROM workout_logs WHERE workout_id = $1 AND student_id = $2', [workoutId, req.user.id]);
+    await query('DELETE FROM exercise_logs WHERE workout_id = $1 AND student_id = $2', [workoutId, req.user.id]);
     return res.json({ ok: true, completed: false });
   } catch (err) {
     console.error(err);
