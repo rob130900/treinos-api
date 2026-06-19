@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import authRoutes from './authRoutes.js';
 import studentRoutes from './studentRoutes.js';
 import workoutRoutes from './workoutRoutes.js';
+import exportRoutes from './exportRoutes.js';
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/workouts', workoutRoutes);
+app.use('/api/export', exportRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Rota nao encontrada.' }));
 
