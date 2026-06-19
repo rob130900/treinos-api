@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS exercises (
   notes        TEXT,
   image_url    TEXT,
   image_url2   TEXT,
+  video_id     VARCHAR(40),
   instructions TEXT,
   muscle_group VARCHAR(40),
   order_index  INTEGER NOT NULL DEFAULT 0
@@ -50,6 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_exercises_workout ON exercises(workout_id);
 -- Garante as colunas novas em bancos ja existentes (idempotente)
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS image_url    TEXT;
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS image_url2   TEXT;
+ALTER TABLE exercises ADD COLUMN IF NOT EXISTS video_id     VARCHAR(40);
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS instructions TEXT;
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS muscle_group VARCHAR(40);
 

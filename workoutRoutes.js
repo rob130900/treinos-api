@@ -56,12 +56,12 @@ router.post('/', async (req, res) => {
         if (!e.name) continue;
         await client.query(
           `INSERT INTO exercises
-             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, instructions, muscle_group, order_index)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, order_index)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [
             workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
             e.notes || null, e.image_url || null, e.image_url2 || null,
-            e.instructions || null, e.muscle_group || null, i,
+            e.video_id || null, e.instructions || null, e.muscle_group || null, i,
           ]
         );
       }
