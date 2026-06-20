@@ -54,6 +54,46 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Alertas inteligentes para o professor (dor relatada, parou de treinar)
+router.get('/alerts', async (req, res) => {
+  try {
+    const rows = (await query(
+      `SELECT u.id, u.name,
+              EXISTS (SELECT 1 FROM workout_logs wl
+                        WHERE wl.student_id = u.id AND wl.pain = TRUE
+                          AND wl.completed_at > NOW() - INTERVAL '14 days') AS pain,
+              (SELECT MAX(completed_at) FROM workout_logs wl WHERE wl.student_id = u.id) AS last_workout,
+              (SELECT COUNT(*) FROM workouts w WHERE w.student_id = u.id) AS total_workouts
+         FROM users u
+        WHERE u.trainer_id = $1 AND u.role = 'student'`,
+      [req.user.id]
+    )).rows;
+
+    const now = Date.now();
+    const alerts = [];
+    for (const r of rows) {
+      if (r.pain) {
+        alerts.push({ student_id: r.id, name: r.name, type: 'dor', text: `${r.name} relatou dor/desconforto em um treino recente.` });
+      }
+      const total = Number(r.total_workouts);
+      const last = r.last_workout ? new Date(r.last_workout).getTime() : null;
+      const days = last ? Math.floor((now - last) / 86400000) : null;
+      if (total > 0 && (last === null || days >= 7)) {
+        alerts.push({
+          student_id: r.id, name: r.name, type: 'inativo',
+          text: last === null
+            ? `${r.name} ainda não concluiu nenhum treino.`
+            : `${r.name} está há ${days} dias sem treinar.`,
+        });
+      }
+    }
+    return res.json({ alerts });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao buscar alertas.' });
+  }
+});
+
 router.get('/:id/progress', async (req, res) => {
   try {
     const studentId = Number(req.params.id);

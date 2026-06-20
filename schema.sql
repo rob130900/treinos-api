@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS workout_logs (
 );
 
 ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
+-- Feedback pos-treino (dificuldade 1-5, dor, comentario)
+ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS difficulty INTEGER;
+ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS pain BOOLEAN DEFAULT FALSE;
+ALTER TABLE workout_logs ADD COLUMN IF NOT EXISTS feedback TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_logs_student ON workout_logs(student_id);
 
@@ -83,3 +87,24 @@ CREATE TABLE IF NOT EXISTS exercise_logs (
 
 CREATE INDEX IF NOT EXISTS idx_exlogs_workout ON exercise_logs(workout_id);
 CREATE INDEX IF NOT EXISTS idx_exlogs_student ON exercise_logs(student_id);
+
+-- ============================================================
+-- Comunicacao: mensagens (chat aluno <-> professor)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS messages (
+  id           SERIAL PRIMARY KEY,
+  trainer_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sender_role  VARCHAR(10) NOT NULL CHECK (sender_role IN ('student', 'trainer')),
+  kind         VARCHAR(16) NOT NULL DEFAULT 'chat'
+               CHECK (kind IN ('chat', 'duvida', 'feedback')),
+  exercise_name VARCHAR(160),
+  workout_id   INTEGER REFERENCES workouts(id) ON DELETE SET NULL,
+  body         TEXT NOT NULL,
+  read_by_trainer BOOLEAN NOT NULL DEFAULT FALSE,
+  read_by_student BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_pair    ON messages(trainer_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_messages_student ON messages(student_id);

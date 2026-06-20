@@ -295,16 +295,24 @@ router.post('/:id/complete', async (req, res) => {
       return res.status(403).json({ error: 'Apenas o aluno pode concluir treinos.' });
     }
     const workoutId = Number(req.params.id);
-    const duration = req.body?.duration_seconds != null ? Number(req.body.duration_seconds) : null;
+    const b = req.body || {};
+    const duration = b.duration_seconds != null ? Number(b.duration_seconds) : null;
+    const difficulty = b.difficulty != null ? Number(b.difficulty) : null;
+    const pain = b.pain === true || b.pain === 'true';
+    const feedback = b.feedback ? String(b.feedback).trim() : null;
 
     if (!(await ownsWorkout(workoutId, req.user.id))) return res.status(404).json({ error: 'Treino nao encontrado.' });
 
     await query(
-      `INSERT INTO workout_logs (workout_id, student_id, note, duration_seconds)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO workout_logs (workout_id, student_id, note, duration_seconds, difficulty, pain, feedback)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (workout_id) DO UPDATE
-         SET completed_at = NOW(), duration_seconds = COALESCE(EXCLUDED.duration_seconds, workout_logs.duration_seconds)`,
-      [workoutId, req.user.id, req.body?.note || null, duration]
+         SET completed_at = NOW(),
+             duration_seconds = COALESCE(EXCLUDED.duration_seconds, workout_logs.duration_seconds),
+             difficulty = COALESCE(EXCLUDED.difficulty, workout_logs.difficulty),
+             pain = EXCLUDED.pain,
+             feedback = COALESCE(EXCLUDED.feedback, workout_logs.feedback)`,
+      [workoutId, req.user.id, b.note || null, duration, difficulty, pain, feedback]
     );
 
     return res.json({ ok: true, completed: true });
