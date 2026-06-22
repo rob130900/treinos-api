@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from './db.js';
 import { authRequired, requireRole } from './authMiddleware.js';
+import { PLANS, planKey } from './plans.js';
 
 const router = Router();
 router.use(authRequired, requireRole('trainer'));
@@ -11,6 +12,22 @@ router.post('/', async (req, res) => {
     const { name, email, password } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha sao obrigatorios.' });
+    }
+
+    // Limite de alunos do plano
+    const planRow = await query('SELECT plan FROM users WHERE id = $1', [req.user.id]);
+    const key = planKey(planRow.rows[0]?.plan);
+    const limit = PLANS[key].limit;
+    if (limit != null) {
+      const used = Number((await query(
+        "SELECT COUNT(*) AS c FROM users WHERE trainer_id = $1 AND role = 'student'", [req.user.id]
+      )).rows[0].c);
+      if (used >= limit) {
+        const msg = key === 'trial'
+          ? 'Você atingiu o limite de alunos do período gratuito. Faça upgrade para continuar cadastrando.'
+          : 'Você atingiu o limite do seu plano. Faça upgrade para continuar adicionando alunos.';
+        return res.status(403).json({ error: msg, code: 'PLAN_LIMIT' });
+      }
     }
 
     const exists = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);

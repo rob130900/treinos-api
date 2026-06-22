@@ -24,6 +24,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS birth_date    DATE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS goal          TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_fee   NUMERIC(8,2);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS student_notes TEXT;
+-- Plano do personal (limite de alunos). Novo personal começa no trial gratuito.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'trial';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days');
 
 CREATE TABLE IF NOT EXISTS workouts (
   id             SERIAL PRIMARY KEY,
