@@ -27,6 +27,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS student_notes TEXT;
 -- Plano do personal (limite de alunos). Novo personal começa no trial gratuito.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan VARCHAR(20) DEFAULT 'trial';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days');
+-- Assinatura / pagamento (Asaas)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS asaas_customer_id VARCHAR(60);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_status   VARCHAR(20) DEFAULT 'trial';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_plan  VARCHAR(20);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_payment_id VARCHAR(60);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_link  TEXT;
 
 CREATE TABLE IF NOT EXISTS workouts (
   id             SERIAL PRIMARY KEY,
