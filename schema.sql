@@ -108,3 +108,33 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_pair    ON messages(trainer_id, student_id);
 CREATE INDEX IF NOT EXISTS idx_messages_student ON messages(student_id);
+
+-- ============================================================
+-- Evolucao: medidas corporais e fotos antes/depois
+-- ============================================================
+CREATE TABLE IF NOT EXISTS measurements (
+  id           SERIAL PRIMARY KEY,
+  student_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  measured_on  DATE NOT NULL DEFAULT CURRENT_DATE,
+  weight       NUMERIC(6,2),
+  body_fat     NUMERIC(5,2),
+  chest        NUMERIC(6,2),
+  waist        NUMERIC(6,2),
+  hip          NUMERIC(6,2),
+  arm          NUMERIC(6,2),
+  thigh        NUMERIC(6,2),
+  notes        TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_measurements_student ON measurements(student_id);
+
+CREATE TABLE IF NOT EXISTS progress_photos (
+  id           SERIAL PRIMARY KEY,
+  student_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  taken_on     DATE NOT NULL DEFAULT CURRENT_DATE,
+  label        VARCHAR(20),
+  image_data   TEXT NOT NULL,
+  notes        TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_photos_student ON progress_photos(student_id);
