@@ -17,6 +17,14 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_trainer ON users(trainer_id);
 CREATE INDEX IF NOT EXISTS idx_users_email   ON users(email);
 
+-- CRM: status e ficha do aluno (idempotente)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status        VARCHAR(20) DEFAULT 'ativo';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone         VARCHAR(40);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS birth_date    DATE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS goal          TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_fee   NUMERIC(8,2);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS student_notes TEXT;
+
 CREATE TABLE IF NOT EXISTS workouts (
   id             SERIAL PRIMARY KEY,
   trainer_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -138,3 +146,20 @@ CREATE TABLE IF NOT EXISTS progress_photos (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_photos_student ON progress_photos(student_id);
+
+-- ============================================================
+-- CRM Financeiro: pagamentos / mensalidades
+-- ============================================================
+CREATE TABLE IF NOT EXISTS payments (
+  id          SERIAL PRIMARY KEY,
+  student_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  trainer_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount      NUMERIC(8,2) NOT NULL,
+  due_date    DATE,
+  paid_on     DATE,
+  method      VARCHAR(30),
+  notes       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_payments_trainer ON payments(trainer_id);
+CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id);

@@ -37,8 +37,11 @@ router.get('/', async (req, res) => {
   try {
     const result = await query(
       `SELECT u.id, u.name, u.email, u.created_at,
+              u.status, u.phone, u.birth_date, u.goal, u.monthly_fee, u.student_notes,
               COUNT(DISTINCT w.id)  AS total_workouts,
-              COUNT(DISTINCT wl.id) AS completed_workouts
+              COUNT(DISTINCT wl.id) AS completed_workouts,
+              EXISTS (SELECT 1 FROM payments p WHERE p.student_id = u.id
+                        AND p.paid_on IS NULL AND p.due_date < CURRENT_DATE) AS overdue
          FROM users u
          LEFT JOIN workouts w      ON w.student_id = u.id
          LEFT JOIN workout_logs wl ON wl.student_id = u.id
@@ -54,7 +57,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Alertas inteligentes para o professor (dor relatada, parou de treinar)
+// Alertas inteligentes (dor, parou de treinar, pagamento atrasado)
 router.get('/alerts', async (req, res) => {
   try {
     const rows = (await query(
@@ -63,7 +66,9 @@ router.get('/alerts', async (req, res) => {
                         WHERE wl.student_id = u.id AND wl.pain = TRUE
                           AND wl.completed_at > NOW() - INTERVAL '14 days') AS pain,
               (SELECT MAX(completed_at) FROM workout_logs wl WHERE wl.student_id = u.id) AS last_workout,
-              (SELECT COUNT(*) FROM workouts w WHERE w.student_id = u.id) AS total_workouts
+              (SELECT COUNT(*) FROM workouts w WHERE w.student_id = u.id) AS total_workouts,
+              (SELECT COUNT(*) FROM payments p WHERE p.student_id = u.id
+                        AND p.paid_on IS NULL AND p.due_date < CURRENT_DATE) AS overdue
          FROM users u
         WHERE u.trainer_id = $1 AND u.role = 'student'`,
       [req.user.id]
@@ -74,6 +79,9 @@ router.get('/alerts', async (req, res) => {
     for (const r of rows) {
       if (r.pain) {
         alerts.push({ student_id: r.id, name: r.name, type: 'dor', text: `${r.name} relatou dor/desconforto em um treino recente.` });
+      }
+      if (Number(r.overdue) > 0) {
+        alerts.push({ student_id: r.id, name: r.name, type: 'pagamento', text: `${r.name} está com pagamento em atraso.` });
       }
       const total = Number(r.total_workouts);
       const last = r.last_workout ? new Date(r.last_workout).getTime() : null;
@@ -91,6 +99,41 @@ router.get('/alerts', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Erro ao buscar alertas.' });
+  }
+});
+
+// Atualizar ficha / status do aluno
+router.patch('/:id', async (req, res) => {
+  try {
+    const studentId = Number(req.params.id);
+    const owns = await query(
+      "SELECT id FROM users WHERE id = $1 AND trainer_id = $2 AND role = 'student'",
+      [studentId, req.user.id]
+    );
+    if (!owns.rows.length) return res.status(404).json({ error: 'Aluno não encontrado.' });
+
+    const b = req.body || {};
+    const allowed = ['status', 'phone', 'birth_date', 'goal', 'monthly_fee', 'student_notes', 'name'];
+    const sets = [];
+    const vals = [];
+    let i = 1;
+    for (const f of allowed) {
+      if (b[f] !== undefined) {
+        sets.push(`${f} = $${i++}`);
+        vals.push(b[f] === '' ? null : b[f]);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar.' });
+    vals.push(studentId, req.user.id);
+    const r = (await query(
+      `UPDATE users SET ${sets.join(', ')} WHERE id = $${i++} AND trainer_id = $${i}
+       RETURNING id, name, email, status, phone, birth_date, goal, monthly_fee, student_notes`,
+      vals
+    )).rows[0];
+    return res.json({ student: r });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao atualizar ficha.' });
   }
 });
 

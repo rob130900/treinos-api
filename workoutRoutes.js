@@ -87,6 +87,45 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Duplicar treino (professor) — copia treino + exercicios
+router.post('/:id/duplicate', async (req, res) => {
+  if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas o personal.' });
+  const client = await pool.connect();
+  try {
+    const srcId = Number(req.params.id);
+    const src = await client.query('SELECT * FROM workouts WHERE id = $1 AND trainer_id = $2', [srcId, req.user.id]);
+    if (!src.rows.length) return res.status(404).json({ error: 'Treino nao encontrado.' });
+    const w = src.rows[0];
+    const targetStudent = req.body?.student_id ? Number(req.body.student_id) : w.student_id;
+    const owns = await client.query('SELECT id FROM users WHERE id = $1 AND trainer_id = $2', [targetStudent, req.user.id]);
+    if (!owns.rows.length) return res.status(404).json({ error: 'Aluno nao encontrado.' });
+
+    await client.query('BEGIN');
+    const nw = await client.query(
+      `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date)
+       VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
+      [req.user.id, targetStudent, `${w.title} (cópia)`, w.description]
+    );
+    const newId = nw.rows[0].id;
+    await client.query(
+      `INSERT INTO exercises
+         (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index)
+       SELECT $1, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index
+         FROM exercises WHERE workout_id = $2`,
+      [newId, srcId]
+    );
+    await client.query('COMMIT');
+    const full = await getWorkoutFull(newId);
+    return res.status(201).json({ workout: full });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao duplicar treino.' });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     let rows;

@@ -8,6 +8,7 @@ import workoutRoutes from './workoutRoutes.js';
 import exportRoutes from './exportRoutes.js';
 import messageRoutes from './messageRoutes.js';
 import progressRoutes from './progressRoutes.js';
+import paymentRoutes from './paymentRoutes.js';
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use('/api/workouts', workoutRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/progress', progressRoutes);
+app.use('/api/payments', paymentRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Rota nao encontrada.' }));
 
