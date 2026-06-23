@@ -36,11 +36,11 @@ export async function ensureCustomer({ id, name, email, cpfCnpj }) {
   return c.id;
 }
 
-export async function createCharge({ customer, value, dueDate, description, billingType }) {
-  return call('/payments', {
-    method: 'POST',
-    body: { customer, billingType: billingType || 'UNDEFINED', value, dueDate, description },
-  });
+export async function createCharge({ customer, value, dueDate, description, billingType, successUrl }) {
+  const body = { customer, billingType: billingType || 'UNDEFINED', value, dueDate, description };
+  // Após pagar, o Asaas redireciona o usuário de volta ao app
+  if (successUrl) body.callback = { successUrl, autoRedirect: true };
+  return call('/payments', { method: 'POST', body });
 }
 
 export async function getPix(paymentId) {

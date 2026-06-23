@@ -62,9 +62,12 @@ router.post('/checkout', async (req, res) => {
       "SELECT GREATEST(COALESCE(trial_ends_at, NOW()), NOW())::date AS d FROM users WHERE id = $1", [req.user.id]
     )).rows[0].d;
     const bt = ['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType) ? billingType : 'UNDEFINED';
+    const appUrl = process.env.APP_URL || 'https://treinos-web.onrender.com';
     const charge = await createCharge({
       customer, value: PLANS[plan].price, dueDate: due,
-      description: `KIVO ${PLANS[plan].name}`, billingType: bt,
+      description: `KIVO Plano ${PLANS[plan].name} — App de Treino`,
+      billingType: bt,
+      successUrl: appUrl + '/aluno',
     });
 
     await query(
