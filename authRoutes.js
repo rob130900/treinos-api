@@ -41,13 +41,15 @@ router.post('/register', async (req, res) => {
     const finalRole = role === 'trainer' ? 'trainer' : 'student';
 
     // Aluno que se cadastra sozinho precisa do código do personal
+    // Código do personal é opcional no cadastro — o aluno pode vincular depois no app
     let trainerId = null;
     if (finalRole === 'student') {
       const code = (invite_code || '').trim().toUpperCase();
-      if (!code) return res.status(400).json({ error: 'Informe o código do seu personal.' });
-      const t = await query("SELECT id FROM users WHERE invite_code = $1 AND role = 'trainer'", [code]);
-      if (!t.rows.length) return res.status(400).json({ error: 'Código do personal inválido.' });
-      trainerId = t.rows[0].id;
+      if (code) {
+        const t = await query("SELECT id FROM users WHERE invite_code = $1 AND role = 'trainer'", [code]);
+        if (!t.rows.length) return res.status(400).json({ error: 'Código do personal inválido.' });
+        trainerId = t.rows[0].id;
+      }
     }
 
     const exists = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
@@ -121,6 +123,27 @@ router.get('/me', authRequired, async (req, res) => {
   }
 
   return res.json({ user: { ...publicUser(u), trainer_name: trainerName } });
+});
+
+// Aluno vincula um personal pelo código (só se ainda não tiver vínculo)
+router.post('/link-trainer', authRequired, async (req, res) => {
+  try {
+    if (req.user.role !== 'student') return res.status(403).json({ error: 'Apenas alunos vinculam um personal.' });
+    const code = (req.body?.invite_code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: 'Informe o código do personal.' });
+
+    const me = (await query('SELECT trainer_id FROM users WHERE id = $1', [req.user.id])).rows[0];
+    if (me?.trainer_id) return res.status(400).json({ error: 'Você já está vinculado a um personal.' });
+
+    const t = (await query("SELECT id, name FROM users WHERE invite_code = $1 AND role = 'trainer'", [code])).rows[0];
+    if (!t) return res.status(404).json({ error: 'Código inválido. Confira com o seu personal.' });
+
+    await query('UPDATE users SET trainer_id = $1 WHERE id = $2', [t.id, req.user.id]);
+    return res.json({ ok: true, trainer_name: t.name });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: 'Erro ao vincular personal.' });
+  }
 });
 
 export default router;

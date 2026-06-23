@@ -274,6 +274,54 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// Editar treino completo (personal): dados + lista de exercícios (substitui)
+router.put('/:id', requireAccess(), async (req, res) => {
+  if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas o personal pode editar treinos.' });
+  const client = await pool.connect();
+  try {
+    const workoutId = Number(req.params.id);
+    const { title, description, scheduled_date, exercises } = req.body || {};
+
+    const owns = await client.query('SELECT id FROM workouts WHERE id = $1 AND trainer_id = $2', [workoutId, req.user.id]);
+    if (!owns.rows.length) { client.release(); return res.status(404).json({ error: 'Treino nao encontrado.' }); }
+    if (!title) { client.release(); return res.status(400).json({ error: 'Título é obrigatório.' }); }
+
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE workouts SET title = $1, description = $2, scheduled_date = $3 WHERE id = $4',
+      [title, description || null, scheduled_date || null, workoutId]
+    );
+    // Substitui os exercícios pela nova lista (cobre editar/reordenar/adicionar/remover)
+    await client.query('DELETE FROM exercises WHERE workout_id = $1', [workoutId]);
+    if (Array.isArray(exercises)) {
+      for (let i = 0; i < exercises.length; i++) {
+        const e = exercises[i];
+        if (!e.name) continue;
+        await client.query(
+          `INSERT INTO exercises
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [
+            workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
+            e.notes || null, e.image_url || null, e.image_url2 || null,
+            e.video_id || null, e.instructions || null, e.muscle_group || null,
+            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i,
+          ]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    const full = await getWorkoutFull(workoutId);
+    return res.json({ workout: full });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    return res.status(500).json({ error: 'Erro ao editar treino.' });
+  } finally {
+    client.release();
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     if (req.user.role !== 'trainer') {
