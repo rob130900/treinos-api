@@ -5,6 +5,8 @@ import { requireAccess } from './access.js';
 
 const router = Router();
 router.use(authRequired);
+// Bloqueia acesso aos treinos para alunos sem assinatura/trial. Personal passa livre.
+router.use(requireAccess());
 
 const TZ = 'America/Sao_Paulo';
 

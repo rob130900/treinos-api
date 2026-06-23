@@ -2,33 +2,17 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from './db.js';
 import { authRequired, requireRole } from './authMiddleware.js';
-import { PLANS, planKey } from './plans.js';
-import { requireAccess } from './access.js';
+import { asaasConfigured, ensureCustomer } from './asaas.js';
 
 const router = Router();
 router.use(authRequired, requireRole('trainer'));
 
-router.post('/', requireAccess(), async (req, res) => {
+// Personal é gratuito e ilimitado: cadastra alunos sem limite/bloqueio.
+router.post('/', async (req, res) => {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha sao obrigatorios.' });
-    }
-
-    // Limite de alunos do plano
-    const planRow = await query('SELECT plan FROM users WHERE id = $1', [req.user.id]);
-    const key = planKey(planRow.rows[0]?.plan);
-    const limit = PLANS[key].limit;
-    if (limit != null) {
-      const used = Number((await query(
-        "SELECT COUNT(*) AS c FROM users WHERE trainer_id = $1 AND role = 'student'", [req.user.id]
-      )).rows[0].c);
-      if (used >= limit) {
-        const msg = key === 'trial'
-          ? 'Você atingiu o limite de alunos do período gratuito. Faça upgrade para continuar cadastrando.'
-          : 'Você atingiu o limite do seu plano. Faça upgrade para continuar adicionando alunos.';
-        return res.status(403).json({ error: msg, code: 'PLAN_LIMIT' });
-      }
     }
 
     const exists = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
@@ -43,8 +27,17 @@ router.post('/', requireAccess(), async (req, res) => {
        RETURNING id, name, email, role, trainer_id, created_at`,
       [name, email.toLowerCase(), hash, req.user.id]
     );
+    const student = result.rows[0];
 
-    return res.status(201).json({ student: result.rows[0] });
+    // Cria o cliente Asaas do aluno (o aluno é quem paga). Não bloqueia se falhar.
+    if (asaasConfigured()) {
+      try {
+        const customerId = await ensureCustomer({ name: student.name, email: student.email });
+        await query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [customerId, student.id]);
+      } catch (e) { console.error('asaas customer (aluno)', e.message); }
+    }
+
+    return res.status(201).json({ student });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Erro ao cadastrar aluno.' });

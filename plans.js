@@ -1,27 +1,22 @@
-// Planos do PERSONAL (gestão e limite de alunos).
-// limit = null  -> ilimitado.
+// Planos de assinatura do ALUNO (modelo: o aluno paga; o personal é gratuito).
+// days = quantos dias de acesso cada pagamento libera.
 export const PLANS = {
-  trial: {
-    key: 'trial', name: 'Plano Gratuito', price: 0, limit: 3, trial: true,
-    desc: 'Teste o sistema com até 3 alunos por 7 dias',
+  mensal: {
+    key: 'mensal', name: 'Mensal', price: 19.90, days: 30,
+    desc: 'Acesso completo aos treinos. Renova a cada mês.',
   },
-  basico: {
-    key: 'basico', name: 'Plano Básico', price: 19.90, limit: 10,
-    desc: 'Ideal para começar e testar o sistema',
+  trimestral: {
+    key: 'trimestral', name: 'Trimestral', price: 49.90, days: 90,
+    badge: 'Mais escolhido', desc: '3 meses de acesso com melhor custo-benefício.',
   },
-  intermediario: {
-    key: 'intermediario', name: 'Plano Intermediário', price: 49.90, limit: 30,
-    badge: 'Mais escolhido', desc: 'Perfeito para personal em crescimento',
-  },
-  premium: {
-    key: 'premium', name: 'Plano Premium', price: 149.90, limit: null,
-    badge: 'Plano profissional', desc: 'Para quem quer escalar sem limites',
+  anual: {
+    key: 'anual', name: 'Anual', price: 179.90, days: 365,
+    badge: 'Melhor preço', desc: '1 ano de acesso pelo menor valor por mês.',
   },
 };
 
-// Planos pagos exibidos no grid de upgrade (trial não é escolhível).
-export const PLAN_ORDER = ['basico', 'intermediario', 'premium'];
+export const PLAN_ORDER = ['mensal', 'trimestral', 'anual'];
 
 export function planKey(value) {
-  return value && PLANS[value] ? value : 'trial';
+  return value && PLANS[value] ? value : null;
 }

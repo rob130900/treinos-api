@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { query } from './db.js';
 import { authRequired } from './authMiddleware.js';
+import { requireAccess } from './access.js';
 
 const router = Router();
 router.use(authRequired);
+router.use(requireAccess());
 
 // Resolve qual aluno a operação atinge (aluno = ele mesmo; professor = aluno dele)
 async function resolveStudent(req) {

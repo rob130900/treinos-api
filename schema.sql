@@ -33,6 +33,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_status   VARCHAR(20) DEFAULT 'tr
 ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_plan  VARCHAR(20);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_payment_id VARCHAR(60);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_link  TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS access_until  TIMESTAMPTZ;
+-- Código de convite do personal (aluno se vincula por ele)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code VARCHAR(16);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite ON users(invite_code) WHERE invite_code IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS workouts (
   id             SERIAL PRIMARY KEY,

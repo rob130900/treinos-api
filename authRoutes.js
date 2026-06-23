@@ -12,16 +12,43 @@ function signToken(user) {
 }
 
 function publicUser(u) {
-  return { id: u.id, name: u.name, email: u.email, role: u.role, trainer_id: u.trainer_id };
+  return {
+    id: u.id, name: u.name, email: u.email, role: u.role,
+    trainer_id: u.trainer_id, invite_code: u.invite_code || null,
+  };
+}
+
+function codeBase(name) {
+  const b = (name || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 7);
+  return b || 'KIVO';
+}
+async function generateInviteCode(name) {
+  const base = codeBase(name);
+  for (let i = 0; i < 25; i++) {
+    const code = base + Math.floor(100 + Math.random() * 900);
+    const exists = await query('SELECT 1 FROM users WHERE invite_code = $1', [code]);
+    if (!exists.rows.length) return code;
+  }
+  return base + String(Date.now()).slice(-5);
 }
 
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, invite_code } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha sao obrigatorios.' });
     }
     const finalRole = role === 'trainer' ? 'trainer' : 'student';
+
+    // Aluno que se cadastra sozinho precisa do código do personal
+    let trainerId = null;
+    if (finalRole === 'student') {
+      const code = (invite_code || '').trim().toUpperCase();
+      if (!code) return res.status(400).json({ error: 'Informe o código do seu personal.' });
+      const t = await query("SELECT id FROM users WHERE invite_code = $1 AND role = 'trainer'", [code]);
+      if (!t.rows.length) return res.status(400).json({ error: 'Código do personal inválido.' });
+      trainerId = t.rows[0].id;
+    }
 
     const exists = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
     if (exists.rows.length > 0) {
@@ -30,19 +57,22 @@ router.post('/register', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await query(
-      `INSERT INTO users (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name, email.toLowerCase(), hash, finalRole]
+      `INSERT INTO users (name, email, password_hash, role, trainer_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [name, email.toLowerCase(), hash, finalRole, trainerId]
     );
-
     const user = result.rows[0];
 
-    // Cria o cliente no Asaas já no cadastro do personal (não bloqueia o cadastro se falhar)
-    if (finalRole === 'trainer' && asaasConfigured()) {
+    if (finalRole === 'trainer') {
+      const code = await generateInviteCode(user.name);
+      await query('UPDATE users SET invite_code = $1 WHERE id = $2', [code, user.id]);
+      user.invite_code = code;
+    } else if (asaasConfigured()) {
+      // Aluno é quem paga: cria cliente no Asaas
       try {
         const customerId = await ensureCustomer({ name: user.name, email: user.email });
         await query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [customerId, user.id]);
-      } catch (e) { console.error('asaas customer (register)', e.message); }
+      } catch (e) { console.error('asaas customer (register aluno)', e.message); }
     }
 
     return res.status(201).json({ token: signToken(user), user: publicUser(user) });
@@ -76,7 +106,21 @@ router.post('/login', async (req, res) => {
 router.get('/me', authRequired, async (req, res) => {
   const result = await query('SELECT * FROM users WHERE id = $1', [req.user.id]);
   if (result.rows.length === 0) return res.status(404).json({ error: 'Usuario nao encontrado.' });
-  return res.json({ user: publicUser(result.rows[0]) });
+  const u = result.rows[0];
+
+  // Gera o código de convite para personais antigos que ainda não têm
+  if (u.role === 'trainer' && !u.invite_code) {
+    try { const code = await generateInviteCode(u.name); await query('UPDATE users SET invite_code = $1 WHERE id = $2', [code, u.id]); u.invite_code = code; }
+    catch (e) { console.error('invite code (me)', e.message); }
+  }
+
+  let trainerName = null;
+  if (u.role === 'student' && u.trainer_id) {
+    const t = (await query('SELECT name FROM users WHERE id = $1', [u.trainer_id])).rows[0];
+    trainerName = t?.name || null;
+  }
+
+  return res.json({ user: { ...publicUser(u), trainer_name: trainerName } });
 });
 
 export default router;
