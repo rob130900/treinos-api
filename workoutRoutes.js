@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query, pool } from './db.js';
 import { authRequired } from './authMiddleware.js';
+import { requireAccess } from './access.js';
 
 const router = Router();
 router.use(authRequired);
@@ -29,7 +30,7 @@ async function getWorkoutFull(workoutId) {
   return workout;
 }
 
-router.post('/', async (req, res) => {
+router.post('/', requireAccess(), async (req, res) => {
   if (req.user.role !== 'trainer') {
     return res.status(403).json({ error: 'Apenas o personal pode criar treinos.' });
   }
@@ -88,7 +89,7 @@ router.post('/', async (req, res) => {
 });
 
 // Duplicar treino (professor) — copia treino + exercicios
-router.post('/:id/duplicate', async (req, res) => {
+router.post('/:id/duplicate', requireAccess(), async (req, res) => {
   if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas o personal.' });
   const client = await pool.connect();
   try {

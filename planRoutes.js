@@ -3,6 +3,7 @@ import { query } from './db.js';
 import { authRequired } from './authMiddleware.js';
 import { PLANS, PLAN_ORDER, planKey } from './plans.js';
 import { asaasConfigured, ensureCustomer, createCharge, getPix, cancelCharge } from './asaas.js';
+import { accessState } from './access.js';
 
 const router = Router();
 router.use(authRequired);
@@ -30,7 +31,10 @@ router.get('/', async (req, res) => {
     if (isTrial && row.trial_ends_at) {
       daysLeft = Math.max(0, Math.ceil((new Date(row.trial_ends_at).getTime() - Date.now()) / 86400000));
     }
+    const access = await accessState(req.user.id);
     return res.json({
+      blocked: access.blocked,
+      accessReason: access.reason,
       current: key,
       used,
       limit: PLANS[key].limit,

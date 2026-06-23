@@ -3,11 +3,12 @@ import bcrypt from 'bcryptjs';
 import { query } from './db.js';
 import { authRequired, requireRole } from './authMiddleware.js';
 import { PLANS, planKey } from './plans.js';
+import { requireAccess } from './access.js';
 
 const router = Router();
 router.use(authRequired, requireRole('trainer'));
 
-router.post('/', async (req, res) => {
+router.post('/', requireAccess(), async (req, res) => {
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) {

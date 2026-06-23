@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from './db.js';
 import { authRequired, JWT_SECRET } from './authMiddleware.js';
+import { asaasConfigured, ensureCustomer } from './asaas.js';
 
 const router = Router();
 
@@ -35,6 +36,15 @@ router.post('/register', async (req, res) => {
     );
 
     const user = result.rows[0];
+
+    // Cria o cliente no Asaas já no cadastro do personal (não bloqueia o cadastro se falhar)
+    if (finalRole === 'trainer' && asaasConfigured()) {
+      try {
+        const customerId = await ensureCustomer({ name: user.name, email: user.email });
+        await query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [customerId, user.id]);
+      } catch (e) { console.error('asaas customer (register)', e.message); }
+    }
+
     return res.status(201).json({ token: signToken(user), user: publicUser(user) });
   } catch (err) {
     console.error(err);
