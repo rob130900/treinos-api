@@ -54,36 +54,49 @@ router.post('/checkout', async (req, res) => {
       return res.json({ mode: 'test', planStatus: 'active', accessUntil: until });
     }
 
-    const u = (await query('SELECT name, email, asaas_customer_id FROM users WHERE id = $1', [req.user.id])).rows[0];
-    const customer = await ensureCustomer({ id: u.asaas_customer_id, name: u.name, email: u.email, cpfCnpj });
-    if (!u.asaas_customer_id) await query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [customer, req.user.id]);
+    // Tem chave Asaas: tenta gerar a cobrança real. Se o Asaas falhar
+    // (chave inválida, ambiente errado, instabilidade), NÃO bloqueia o aluno:
+    // cai para o modo teste e libera o acesso, para nunca travar os testes.
+    try {
+      const u = (await query('SELECT name, email, asaas_customer_id FROM users WHERE id = $1', [req.user.id])).rows[0];
+      const customer = await ensureCustomer({ id: u.asaas_customer_id, name: u.name, email: u.email, cpfCnpj });
+      if (!u.asaas_customer_id) await query('UPDATE users SET asaas_customer_id = $1 WHERE id = $2', [customer, req.user.id]);
 
-    const due = (await query(
-      "SELECT GREATEST(COALESCE(trial_ends_at, NOW()), NOW())::date AS d FROM users WHERE id = $1", [req.user.id]
-    )).rows[0].d;
-    const bt = ['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType) ? billingType : 'UNDEFINED';
-    const appUrl = process.env.APP_URL || 'https://treinos-web.onrender.com';
-    const charge = await createCharge({
-      customer, value: PLANS[plan].price, dueDate: due,
-      description: `KIVO Plano ${PLANS[plan].name} — App de Treino`,
-      billingType: bt,
-      successUrl: appUrl + '/aluno',
-    });
+      const due = (await query(
+        "SELECT GREATEST(COALESCE(trial_ends_at, NOW()), NOW())::date AS d FROM users WHERE id = $1", [req.user.id]
+      )).rows[0].d;
+      const bt = ['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType) ? billingType : 'UNDEFINED';
+      const appUrl = process.env.APP_URL || 'https://treinos-web.onrender.com';
+      const charge = await createCharge({
+        customer, value: PLANS[plan].price, dueDate: due,
+        description: `KIVO Plano ${PLANS[plan].name} — App de Treino`,
+        billingType: bt,
+        successUrl: appUrl + '/aluno',
+      });
 
-    await query(
-      "UPDATE users SET pending_plan = $1, plan_status = 'pending', last_payment_id = $2, payment_link = $3 WHERE id = $4",
-      [plan, charge.id, charge.invoiceUrl || null, req.user.id]
-    );
+      await query(
+        "UPDATE users SET pending_plan = $1, plan_status = 'pending', last_payment_id = $2, payment_link = $3 WHERE id = $4",
+        [plan, charge.id, charge.invoiceUrl || null, req.user.id]
+      );
 
-    let pix = null;
-    if (bt === 'PIX') { try { pix = await getPix(charge.id); } catch { /* */ } }
+      let pix = null;
+      if (bt === 'PIX') { try { pix = await getPix(charge.id); } catch { /* */ } }
 
-    return res.json({
-      mode: 'asaas', paymentId: charge.id, billingType: bt,
-      value: PLANS[plan].price, dueDate: due,
-      invoiceUrl: charge.invoiceUrl || null, bankSlipUrl: charge.bankSlipUrl || null,
-      pix: pix ? { encodedImage: pix.encodedImage, payload: pix.payload } : null,
-    });
+      return res.json({
+        mode: 'asaas', paymentId: charge.id, billingType: bt,
+        value: PLANS[plan].price, dueDate: due,
+        invoiceUrl: charge.invoiceUrl || null, bankSlipUrl: charge.bankSlipUrl || null,
+        pix: pix ? { encodedImage: pix.encodedImage, payload: pix.payload } : null,
+      });
+    } catch (asaasErr) {
+      console.error('Asaas falhou, liberando em modo teste:', asaasErr.message);
+      const until = new Date(Date.now() + PLANS[plan].days * 86400000);
+      await query(
+        "UPDATE users SET plan_status = 'active', pending_plan = NULL, access_until = $1, payment_link = NULL WHERE id = $2",
+        [until, req.user.id]
+      );
+      return res.json({ mode: 'test', planStatus: 'active', accessUntil: until, fallback: true });
+    }
   } catch (e) { console.error(e); return res.status(500).json({ error: e.message || 'Erro ao gerar pagamento.' }); }
 });
 
