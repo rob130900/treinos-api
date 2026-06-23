@@ -129,6 +129,20 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_pair    ON messages(trainer_id, student_id);
 CREATE INDEX IF NOT EXISTS idx_messages_student ON messages(student_id);
+-- Mídia (vídeo) nas mensagens
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type VARCHAR(10);
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_data TEXT;
+
+-- Biblioteca de vídeos modelo de correção (do personal, por exercício)
+CREATE TABLE IF NOT EXISTS correction_videos (
+  id            SERIAL PRIMARY KEY,
+  trainer_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  exercise_name VARCHAR(160),
+  label         VARCHAR(120),
+  media_data    TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_corrvid_trainer ON correction_videos(trainer_id);
 
 -- ============================================================
 -- Evolucao: medidas corporais e fotos antes/depois

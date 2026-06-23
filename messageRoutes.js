@@ -101,8 +101,10 @@ router.get('/unread', async (req, res) => {
 // Enviar mensagem
 router.post('/', async (req, res) => {
   try {
-    const { body, kind, exercise_name, workout_id } = req.body;
-    if (!body || !String(body).trim()) return res.status(400).json({ error: 'Mensagem vazia.' });
+    const { body, kind, exercise_name, workout_id, media_type, media_data } = req.body;
+    const text = body ? String(body).trim() : '';
+    const hasMedia = media_type === 'video' && media_data;
+    if (!text && !hasMedia) return res.status(400).json({ error: 'Mensagem vazia.' });
 
     let trainerId;
     let studentId;
@@ -125,11 +127,12 @@ router.post('/', async (req, res) => {
 
     const r = (await query(
       `INSERT INTO messages
-         (trainer_id, student_id, sender_role, kind, exercise_name, workout_id, body, read_by_trainer, read_by_student)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+         (trainer_id, student_id, sender_role, kind, exercise_name, workout_id, body, media_type, media_data, read_by_trainer, read_by_student)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
         trainerId, studentId, senderRole, finalKind,
-        exercise_name || null, workout_id || null, String(body).trim(),
+        exercise_name || null, workout_id || null, text,
+        hasMedia ? 'video' : null, hasMedia ? media_data : null,
         senderRole === 'trainer', senderRole === 'student',
       ]
     )).rows[0];
@@ -139,6 +142,39 @@ router.post('/', async (req, res) => {
     console.error(e);
     return res.status(500).json({ error: 'Erro ao enviar mensagem.' });
   }
+});
+
+// ===== Biblioteca de vídeos modelo (personal) =====
+router.get('/models', async (req, res) => {
+  try {
+    if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas professor.' });
+    const params = [req.user.id];
+    let sql = 'SELECT * FROM correction_videos WHERE trainer_id = $1';
+    if (req.query.exercise) { params.push(req.query.exercise); sql += ' AND exercise_name = $2'; }
+    sql += ' ORDER BY created_at DESC';
+    return res.json({ models: (await query(sql, params)).rows });
+  } catch (e) { console.error(e); return res.status(500).json({ error: 'Erro ao listar modelos.' }); }
+});
+
+router.post('/models', async (req, res) => {
+  try {
+    if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas professor.' });
+    const { exercise_name, label, media_data } = req.body || {};
+    if (!media_data) return res.status(400).json({ error: 'Vídeo ausente.' });
+    const r = (await query(
+      'INSERT INTO correction_videos (trainer_id, exercise_name, label, media_data) VALUES ($1,$2,$3,$4) RETURNING id, exercise_name, label, created_at',
+      [req.user.id, exercise_name || null, label || null, media_data]
+    )).rows[0];
+    return res.status(201).json({ model: r });
+  } catch (e) { console.error(e); return res.status(500).json({ error: 'Erro ao salvar modelo.' }); }
+});
+
+router.delete('/models/:id', async (req, res) => {
+  try {
+    if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas professor.' });
+    await query('DELETE FROM correction_videos WHERE id = $1 AND trainer_id = $2', [Number(req.params.id), req.user.id]);
+    return res.json({ ok: true });
+  } catch (e) { console.error(e); return res.status(500).json({ error: 'Erro.' }); }
 });
 
 export default router;
