@@ -77,6 +77,20 @@ ALTER TABLE exercises ADD COLUMN IF NOT EXISTS video_id     VARCHAR(40);
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS instructions TEXT;
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS muscle_group VARCHAR(40);
 ALTER TABLE exercises ADD COLUMN IF NOT EXISTS rest_seconds INTEGER DEFAULT 60;
+ALTER TABLE exercises ADD COLUMN IF NOT EXISTS video_data   TEXT;
+
+-- Exercícios personalizados do personal (com vídeo próprio)
+CREATE TABLE IF NOT EXISTS custom_exercises (
+  id           SERIAL PRIMARY KEY,
+  trainer_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         VARCHAR(160) NOT NULL,
+  description  TEXT,
+  muscle_group VARCHAR(60),
+  notes        TEXT,
+  video_data   TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_customex_trainer ON custom_exercises(trainer_id);
 
 CREATE TABLE IF NOT EXISTS workout_logs (
   id           SERIAL PRIMARY KEY,

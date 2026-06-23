@@ -66,13 +66,13 @@ router.post('/', requireAccess(), async (req, res) => {
         if (!e.name) continue;
         await client.query(
           `INSERT INTO exercises
-             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
             e.notes || null, e.image_url || null, e.image_url2 || null,
             e.video_id || null, e.instructions || null, e.muscle_group || null,
-            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i,
+            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i, e.video_data || null,
           ]
         );
       }
@@ -112,8 +112,8 @@ router.post('/:id/duplicate', requireAccess(), async (req, res) => {
     const newId = nw.rows[0].id;
     await client.query(
       `INSERT INTO exercises
-         (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index)
-       SELECT $1, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index
+         (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data)
+       SELECT $1, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data
          FROM exercises WHERE workout_id = $2`,
       [newId, srcId]
     );
@@ -299,13 +299,13 @@ router.put('/:id', requireAccess(), async (req, res) => {
         if (!e.name) continue;
         await client.query(
           `INSERT INTO exercises
-             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
           [
             workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
             e.notes || null, e.image_url || null, e.image_url2 || null,
             e.video_id || null, e.instructions || null, e.muscle_group || null,
-            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i,
+            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i, e.video_data || null,
           ]
         );
       }
