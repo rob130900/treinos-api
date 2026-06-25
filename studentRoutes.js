@@ -10,7 +10,7 @@ router.use(authRequired, requireRole('trainer'));
 // Personal é gratuito e ilimitado: cadastra alunos sem limite/bloqueio.
 router.post('/', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, monthly_fee } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha sao obrigatorios.' });
     }
@@ -20,12 +20,13 @@ router.post('/', async (req, res) => {
       return res.status(409).json({ error: 'Este email ja esta cadastrado.' });
     }
 
+    const fee = monthly_fee === '' || monthly_fee == null ? null : Number(monthly_fee);
     const hash = await bcrypt.hash(password, 10);
     const result = await query(
-      `INSERT INTO users (name, email, password_hash, role, trainer_id)
-       VALUES ($1, $2, $3, 'student', $4)
-       RETURNING id, name, email, role, trainer_id, created_at`,
-      [name, email.toLowerCase(), hash, req.user.id]
+      `INSERT INTO users (name, email, password_hash, role, trainer_id, monthly_fee)
+       VALUES ($1, $2, $3, 'student', $4, $5)
+       RETURNING id, name, email, role, trainer_id, monthly_fee, created_at`,
+      [name, email.toLowerCase(), hash, req.user.id, fee]
     );
     const student = result.rows[0];
 

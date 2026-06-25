@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from './db.js';
 import { authRequired } from './authMiddleware.js';
-import { PLANS, PLAN_ORDER } from './plans.js';
+import { PLANS, PLAN_ORDER, PLATFORM_FEE, studentBilling } from './plans.js';
 import { asaasConfigured, ensureCustomer, createCharge, getPix, cancelCharge } from './asaas.js';
 import { accessState } from './access.js';
 
@@ -15,13 +15,16 @@ router.get('/', async (req, res) => {
       return res.json({ isTrainer: true, free: true, blocked: false });
     }
     const row = (await query(
-      'SELECT plan_status, trial_ends_at, access_until, payment_link FROM users WHERE id = $1',
+      'SELECT plan_status, trial_ends_at, access_until, payment_link, monthly_fee FROM users WHERE id = $1',
       [req.user.id]
     )).rows[0] || {};
     const access = await accessState(req.user.id, 'student');
     const now = Date.now();
     const trialEnd = row.trial_ends_at ? new Date(row.trial_ends_at).getTime() : null;
     const daysLeft = trialEnd ? Math.max(0, Math.ceil((trialEnd - now) / 86400000)) : null;
+
+    // Modelo de mensalidade: o personal define o valor; a plataforma soma a taxa.
+    const billing = studentBilling(row.monthly_fee);
 
     return res.json({
       isTrainer: false,
@@ -32,6 +35,12 @@ router.get('/', async (req, res) => {
       blocked: access.blocked,
       accessReason: access.reason,
       paymentLink: row.payment_link || null,
+      // mensalidade (modelo atual): valor único que o aluno paga
+      hasMensalidade: !!billing,
+      mensalidade: billing ? billing.mensalidade : null,
+      platformFee: PLATFORM_FEE,
+      total: billing ? billing.total : null,
+      // catálogo legado (compatibilidade)
       plans: PLAN_ORDER.map((k) => PLANS[k]),
     });
   } catch (e) { console.error(e); return res.status(500).json({ error: 'Erro ao carregar plano.' }); }
@@ -42,11 +51,23 @@ router.post('/checkout', async (req, res) => {
   try {
     if (req.user.role !== 'student') return res.status(403).json({ error: 'Apenas alunos assinam um plano.' });
     const { plan, billingType, cpfCnpj } = req.body || {};
-    if (!PLANS[plan]) return res.status(400).json({ error: 'Plano inválido.' });
+
+    // Modelo de mensalidade: o personal define quanto quer receber; a plataforma
+    // soma a taxa fixa. O aluno paga o total. (Fallback p/ catálogo legado.)
+    const meRow = (await query('SELECT monthly_fee FROM users WHERE id = $1', [req.user.id])).rows[0] || {};
+    const billing = studentBilling(meRow.monthly_fee);
+    let chargeValue, chargeDays, chargeName, pendingKey;
+    if (billing) {
+      chargeValue = billing.total; chargeDays = billing.days; chargeName = 'Mensalidade'; pendingKey = 'mensal';
+    } else if (PLANS[plan]) {
+      chargeValue = PLANS[plan].price; chargeDays = PLANS[plan].days; chargeName = PLANS[plan].name; pendingKey = plan;
+    } else {
+      return res.status(400).json({ error: 'Seu personal ainda não definiu sua mensalidade. Fale com ele para liberar o pagamento.' });
+    }
 
     // Sem chave Asaas -> modo teste (libera na hora pela duração do plano)
     if (!asaasConfigured()) {
-      const until = new Date(Date.now() + PLANS[plan].days * 86400000);
+      const until = new Date(Date.now() + chargeDays * 86400000);
       await query(
         "UPDATE users SET plan_status = 'active', pending_plan = NULL, access_until = $1, payment_link = NULL WHERE id = $2",
         [until, req.user.id]
@@ -68,15 +89,15 @@ router.post('/checkout', async (req, res) => {
       const bt = ['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType) ? billingType : 'UNDEFINED';
       const appUrl = process.env.APP_URL || 'https://treinos-web.onrender.com';
       const charge = await createCharge({
-        customer, value: PLANS[plan].price, dueDate: due,
-        description: `KIVO Plano ${PLANS[plan].name} — App de Treino`,
+        customer, value: chargeValue, dueDate: due,
+        description: `KIVO ${chargeName} — App de Treino`,
         billingType: bt,
         successUrl: appUrl + '/aluno',
       });
 
       await query(
         "UPDATE users SET pending_plan = $1, plan_status = 'pending', last_payment_id = $2, payment_link = $3 WHERE id = $4",
-        [plan, charge.id, charge.invoiceUrl || null, req.user.id]
+        [pendingKey, charge.id, charge.invoiceUrl || null, req.user.id]
       );
 
       let pix = null;
@@ -84,13 +105,13 @@ router.post('/checkout', async (req, res) => {
 
       return res.json({
         mode: 'asaas', paymentId: charge.id, billingType: bt,
-        value: PLANS[plan].price, dueDate: due,
+        value: chargeValue, dueDate: due,
         invoiceUrl: charge.invoiceUrl || null, bankSlipUrl: charge.bankSlipUrl || null,
         pix: pix ? { encodedImage: pix.encodedImage, payload: pix.payload } : null,
       });
     } catch (asaasErr) {
       console.error('Asaas falhou, liberando em modo teste:', asaasErr.message);
-      const until = new Date(Date.now() + PLANS[plan].days * 86400000);
+      const until = new Date(Date.now() + chargeDays * 86400000);
       await query(
         "UPDATE users SET plan_status = 'active', pending_plan = NULL, access_until = $1, payment_link = NULL WHERE id = $2",
         [until, req.user.id]

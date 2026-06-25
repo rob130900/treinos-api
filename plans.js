@@ -20,3 +20,21 @@ export const PLAN_ORDER = ['mensal', 'trimestral', 'anual'];
 export function planKey(value) {
   return value && PLANS[value] ? value : null;
 }
+
+// ── Modelo de mensalidade (personal grátis, plataforma ganha por aluno) ──
+// Taxa fixa da plataforma por aluno ativo.
+export const PLATFORM_FEE = 20;
+
+// O personal define a mensalidade (quanto ELE quer receber). A plataforma soma
+// a taxa. O aluno vê e paga só o total. A plataforma absorve a tarifa do Asaas
+// dentro da taxa, então o personal recebe o valor cheio exato.
+export function studentBilling(monthlyFee) {
+  const mensalidade = Number(monthlyFee) || 0;
+  if (mensalidade <= 0) return null;
+  return {
+    mensalidade,
+    platformFee: PLATFORM_FEE,
+    total: Math.round((mensalidade + PLATFORM_FEE) * 100) / 100,
+    days: 30, // mensalidade = acesso mensal
+  };
+}
