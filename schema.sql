@@ -34,6 +34,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_plan  VARCHAR(20);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_payment_id VARCHAR(60);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_link  TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS access_until  TIMESTAMPTZ;
+-- Split: carteira Asaas (subconta) do personal — recebe a mensalidade direto
+ALTER TABLE users ADD COLUMN IF NOT EXISTS asaas_wallet_id VARCHAR(60);
 -- Código de convite do personal (aluno se vincula por ele)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code VARCHAR(16);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite ON users(invite_code) WHERE invite_code IS NOT NULL;

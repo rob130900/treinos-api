@@ -36,11 +36,22 @@ export async function ensureCustomer({ id, name, email, cpfCnpj }) {
   return c.id;
 }
 
-export async function createCharge({ customer, value, dueDate, description, billingType, successUrl }) {
+export async function createCharge({ customer, value, dueDate, description, billingType, successUrl, splits }) {
   const body = { customer, billingType: billingType || 'UNDEFINED', value, dueDate, description };
   // Após pagar, o Asaas redireciona o usuário de volta ao app
   if (successUrl) body.callback = { successUrl, autoRedirect: true };
+  // Split: divide o valor recebido. Cada item { walletId, fixedValue|percentualValue }.
+  // O que não for dividido fica com quem emitiu a cobrança (a plataforma).
+  if (Array.isArray(splits) && splits.length) body.split = splits;
   return call('/payments', { method: 'POST', body });
+}
+
+// Cria uma subconta Asaas (BaaS) para o personal e retorna { walletId, apiKey, id, ... }.
+// Só funciona se a conta-raiz da plataforma for CNPJ (PJ). walletId é usado no split.
+// data: { name, email, cpfCnpj, mobilePhone, incomeValue, address, addressNumber,
+//         province, postalCode, companyType?, birthDate? }
+export async function createSubaccount(data) {
+  return call('/accounts', { method: 'POST', body: data });
 }
 
 export async function getPix(paymentId) {

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query } from './db.js';
 import { authRequired } from './authMiddleware.js';
 import { PLANS, PLAN_ORDER, PLATFORM_FEE, studentBilling } from './plans.js';
-import { asaasConfigured, ensureCustomer, createCharge, getPix, cancelCharge } from './asaas.js';
+import { asaasConfigured, ensureCustomer, createCharge, getPix, cancelCharge, createSubaccount } from './asaas.js';
 import { accessState } from './access.js';
 
 const router = Router();
@@ -12,7 +12,12 @@ router.use(authRequired);
 router.get('/', async (req, res) => {
   try {
     if (req.user.role === 'trainer') {
-      return res.json({ isTrainer: true, free: true, blocked: false });
+      const w = (await query('SELECT asaas_wallet_id FROM users WHERE id = $1', [req.user.id])).rows[0] || {};
+      return res.json({
+        isTrainer: true, free: true, blocked: false,
+        paymentActive: asaasConfigured(),
+        connected: !!w.asaas_wallet_id, walletId: w.asaas_wallet_id || null,
+      });
     }
     const row = (await query(
       'SELECT plan_status, trial_ends_at, access_until, payment_link, monthly_fee FROM users WHERE id = $1',
@@ -44,6 +49,45 @@ router.get('/', async (req, res) => {
       plans: PLAN_ORDER.map((k) => PLANS[k]),
     });
   } catch (e) { console.error(e); return res.status(500).json({ error: 'Erro ao carregar plano.' }); }
+});
+
+// Personal conecta o recebimento: cria a subconta Asaas (BaaS) e guarda o walletId.
+// Com o walletId, a mensalidade cai DIRETO na carteira do personal via split.
+router.post('/connect', async (req, res) => {
+  try {
+    if (req.user.role !== 'trainer') return res.status(403).json({ error: 'Apenas o personal conecta o recebimento.' });
+    if (!asaasConfigured()) return res.status(400).json({ error: 'Pagamento ainda não está ativo (Asaas não configurado).' });
+
+    const existing = (await query('SELECT asaas_wallet_id FROM users WHERE id = $1', [req.user.id])).rows[0] || {};
+    if (existing.asaas_wallet_id) return res.json({ connected: true, walletId: existing.asaas_wallet_id, already: true });
+
+    const me = (await query('SELECT name, email FROM users WHERE id = $1', [req.user.id])).rows[0];
+    const b = req.body || {};
+    const required = ['cpfCnpj', 'mobilePhone', 'incomeValue', 'address', 'addressNumber', 'province', 'postalCode'];
+    const missing = required.filter((f) => b[f] === undefined || b[f] === null || b[f] === '');
+    if (missing.length) return res.status(400).json({ error: 'Preencha: ' + missing.join(', ') });
+
+    const payload = {
+      name: b.name || me.name,
+      email: b.email || me.email,
+      cpfCnpj: String(b.cpfCnpj).replace(/\D/g, ''),
+      mobilePhone: String(b.mobilePhone).replace(/\D/g, ''),
+      incomeValue: Number(b.incomeValue),
+      address: b.address, addressNumber: String(b.addressNumber),
+      province: b.province, postalCode: String(b.postalCode).replace(/\D/g, ''),
+    };
+    if (b.companyType) payload.companyType = b.companyType; // MEI|LIMITED|INDIVIDUAL|ASSOCIATION (PJ)
+    if (b.birthDate) payload.birthDate = b.birthDate;        // PF
+    if (b.complement) payload.complement = b.complement;
+
+    const acc = await createSubaccount(payload);
+    if (!acc.walletId) return res.status(502).json({ error: 'Asaas não retornou a carteira (walletId).' });
+    await query('UPDATE users SET asaas_wallet_id = $1 WHERE id = $2', [acc.walletId, req.user.id]);
+    return res.json({ connected: true, walletId: acc.walletId });
+  } catch (e) {
+    console.error('connect subaccount', e.message);
+    return res.status(500).json({ error: e.message || 'Erro ao conectar recebimento.' });
+  }
 });
 
 // Aluno gera a cobrança do plano (PIX / boleto / cartão via Asaas).
@@ -88,11 +132,24 @@ router.post('/checkout', async (req, res) => {
       )).rows[0].d;
       const bt = ['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType) ? billingType : 'UNDEFINED';
       const appUrl = process.env.APP_URL || 'https://treinos-web.onrender.com';
+
+      // Split: se o personal do aluno tem carteira (subconta), a mensalidade vai
+      // direto pra ele (valor cheio). A plataforma fica com o resto (taxa - tarifa).
+      let splits;
+      if (billing) {
+        const tw = (await query(
+          'SELECT t.asaas_wallet_id FROM users s JOIN users t ON t.id = s.trainer_id WHERE s.id = $1',
+          [req.user.id]
+        )).rows[0];
+        if (tw && tw.asaas_wallet_id) splits = [{ walletId: tw.asaas_wallet_id, fixedValue: billing.mensalidade }];
+      }
+
       const charge = await createCharge({
         customer, value: chargeValue, dueDate: due,
         description: `KIVO ${chargeName} — App de Treino`,
         billingType: bt,
         successUrl: appUrl + '/aluno',
+        splits,
       });
 
       await query(
