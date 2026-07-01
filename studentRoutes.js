@@ -23,8 +23,8 @@ router.post('/', async (req, res) => {
     const fee = monthly_fee === '' || monthly_fee == null ? null : Number(monthly_fee);
     const hash = await bcrypt.hash(password, 10);
     const result = await query(
-      `INSERT INTO users (name, email, password_hash, role, trainer_id, monthly_fee)
-       VALUES ($1, $2, $3, 'student', $4, $5)
+      `INSERT INTO users (name, email, password_hash, role, trainer_id, monthly_fee, personal_id)
+       VALUES ($1, $2, $3, 'student', $4, $5, $4)
        RETURNING id, name, email, role, trainer_id, monthly_fee, created_at`,
       [name, email.toLowerCase(), hash, req.user.id, fee]
     );

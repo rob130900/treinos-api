@@ -59,16 +59,17 @@ router.post('/register', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await query(
-      `INSERT INTO users (name, email, password_hash, role, trainer_id)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      `INSERT INTO users (name, email, password_hash, role, trainer_id, personal_id)
+       VALUES ($1, $2, $3, $4, $5, $5) RETURNING *`,
       [name, email.toLowerCase(), hash, finalRole, trainerId]
     );
     const user = result.rows[0];
 
     if (finalRole === 'trainer') {
       const code = await generateInviteCode(user.name);
-      await query('UPDATE users SET invite_code = $1 WHERE id = $2', [code, user.id]);
+      await query('UPDATE users SET invite_code = $1, personal_id = id WHERE id = $2', [code, user.id]);
       user.invite_code = code;
+      user.personal_id = user.id;
     } else if (asaasConfigured()) {
       // Aluno é quem paga: cria cliente no Asaas
       try {
@@ -138,7 +139,7 @@ router.post('/link-trainer', authRequired, async (req, res) => {
     const t = (await query("SELECT id, name FROM users WHERE invite_code = $1 AND role = 'trainer'", [code])).rows[0];
     if (!t) return res.status(404).json({ error: 'Código inválido. Confira com o seu personal.' });
 
-    await query('UPDATE users SET trainer_id = $1 WHERE id = $2', [t.id, req.user.id]);
+    await query('UPDATE users SET trainer_id = $1, personal_id = $1 WHERE id = $2', [t.id, req.user.id]);
     return res.json({ ok: true, trainer_name: t.name });
   } catch (e) {
     console.error(e);

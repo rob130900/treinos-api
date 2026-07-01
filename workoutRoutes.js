@@ -54,8 +54,8 @@ router.post('/', requireAccess(), async (req, res) => {
 
     await client.query('BEGIN');
     const wResult = await client.query(
-      `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date, personal_id)
+       VALUES ($1, $2, $3, $4, $5, $1) RETURNING id`,
       [req.user.id, student_id, title, description || null, scheduled_date || null]
     );
     const workoutId = wResult.rows[0].id;
@@ -66,13 +66,13 @@ router.post('/', requireAccess(), async (req, res) => {
         if (!e.name) continue;
         await client.query(
           `INSERT INTO exercises
-             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data, personal_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
           [
             workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
             e.notes || null, e.image_url || null, e.image_url2 || null,
             e.video_id || null, e.instructions || null, e.muscle_group || null,
-            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i, e.video_data || null,
+            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i, e.video_data || null, req.user.id,
           ]
         );
       }
@@ -105,17 +105,17 @@ router.post('/:id/duplicate', requireAccess(), async (req, res) => {
 
     await client.query('BEGIN');
     const nw = await client.query(
-      `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date)
-       VALUES ($1, $2, $3, $4, NULL) RETURNING id`,
+      `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date, personal_id)
+       VALUES ($1, $2, $3, $4, NULL, $1) RETURNING id`,
       [req.user.id, targetStudent, `${w.title} (cópia)`, w.description]
     );
     const newId = nw.rows[0].id;
     await client.query(
       `INSERT INTO exercises
-         (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data)
-       SELECT $1, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data
+         (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data, personal_id)
+       SELECT $1, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data, $3
          FROM exercises WHERE workout_id = $2`,
-      [newId, srcId]
+      [newId, srcId, req.user.id]
     );
     await client.query('COMMIT');
     const full = await getWorkoutFull(newId);
@@ -299,13 +299,13 @@ router.put('/:id', requireAccess(), async (req, res) => {
         if (!e.name) continue;
         await client.query(
           `INSERT INTO exercises
-             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+             (workout_id, name, sets, reps, weight, notes, image_url, image_url2, video_id, instructions, muscle_group, rest_seconds, order_index, video_data, personal_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
           [
             workoutId, e.name, e.sets || null, e.reps || null, e.weight || null,
             e.notes || null, e.image_url || null, e.image_url2 || null,
             e.video_id || null, e.instructions || null, e.muscle_group || null,
-            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i, e.video_data || null,
+            e.rest_seconds != null ? Number(e.rest_seconds) : 60, i, e.video_data || null, req.user.id,
           ]
         );
       }
@@ -353,8 +353,8 @@ router.post('/:id/exercises/:exId/complete', async (req, res) => {
     if (!(await ownsWorkout(workoutId, req.user.id))) return res.status(404).json({ error: 'Treino nao encontrado.' });
 
     await query(
-      `INSERT INTO exercise_logs (exercise_id, workout_id, student_id)
-       VALUES ($1, $2, $3)
+      `INSERT INTO exercise_logs (exercise_id, workout_id, student_id, personal_id)
+       VALUES ($1, $2, $3, (SELECT personal_id FROM workouts WHERE id = $2))
        ON CONFLICT (exercise_id, student_id) DO NOTHING`,
       [exId, workoutId, req.user.id]
     );
@@ -394,8 +394,8 @@ router.post('/:id/complete', async (req, res) => {
     if (!(await ownsWorkout(workoutId, req.user.id))) return res.status(404).json({ error: 'Treino nao encontrado.' });
 
     await query(
-      `INSERT INTO workout_logs (workout_id, student_id, note, duration_seconds, difficulty, pain, feedback)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO workout_logs (workout_id, student_id, note, duration_seconds, difficulty, pain, feedback, personal_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT personal_id FROM workouts WHERE id = $1))
        ON CONFLICT (workout_id) DO UPDATE
          SET completed_at = NOW(),
              duration_seconds = COALESCE(EXCLUDED.duration_seconds, workout_logs.duration_seconds),

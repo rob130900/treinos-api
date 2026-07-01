@@ -21,8 +21,8 @@ router.post('/', async (req, res) => {
     const { name, description, muscle_group, notes, video_data } = req.body || {};
     if (!name || !name.trim()) return res.status(400).json({ error: 'Nome do exercício é obrigatório.' });
     const r = (await query(
-      `INSERT INTO custom_exercises (trainer_id, name, description, muscle_group, notes, video_data)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO custom_exercises (trainer_id, name, description, muscle_group, notes, video_data, personal_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $1) RETURNING *`,
       [req.user.id, name.trim(), description || null, muscle_group || null, notes || null, video_data || null]
     )).rows[0];
     return res.status(201).json({ exercise: r });

@@ -65,8 +65,8 @@ router.post('/', async (req, res) => {
     if (!sid || !(await ownsStudent(req.user.id, sid))) return res.status(404).json({ error: 'Aluno não encontrado.' });
     if (b.amount == null || b.amount === '') return res.status(400).json({ error: 'Valor obrigatório.' });
     const r = (await query(
-      `INSERT INTO payments (student_id, trainer_id, amount, due_date, paid_on, method, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO payments (student_id, trainer_id, amount, due_date, paid_on, method, notes, personal_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $2) RETURNING *`,
       [sid, req.user.id, Number(b.amount), b.due_date || null, b.paid_on || null, b.method || null, b.notes || null]
     )).rows[0];
     return res.status(201).json({ payment: r });

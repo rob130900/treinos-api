@@ -41,8 +41,8 @@ router.post('/measurements', async (req, res) => {
     const b = req.body || {};
     const r = (await query(
       `INSERT INTO measurements
-         (student_id, measured_on, weight, body_fat, chest, waist, hip, arm, thigh, notes)
-       VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+         (student_id, measured_on, weight, body_fat, chest, waist, hip, arm, thigh, notes, personal_id)
+       VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, $6, $7, $8, $9, $10, (SELECT trainer_id FROM users WHERE id = $1)) RETURNING *`,
       [sid, b.measured_on || null, num(b.weight), num(b.body_fat), num(b.chest),
         num(b.waist), num(b.hip), num(b.arm), num(b.thigh), b.notes || null]
     )).rows[0];
@@ -79,8 +79,8 @@ router.post('/photos', async (req, res) => {
     const b = req.body || {};
     if (!b.image_data) return res.status(400).json({ error: 'Imagem ausente.' });
     const r = (await query(
-      `INSERT INTO progress_photos (student_id, taken_on, label, image_data, notes)
-       VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5) RETURNING *`,
+      `INSERT INTO progress_photos (student_id, taken_on, label, image_data, notes, personal_id)
+       VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, (SELECT trainer_id FROM users WHERE id = $1)) RETURNING *`,
       [sid, b.taken_on || null, b.label || null, b.image_data, b.notes || null]
     )).rows[0];
     return res.status(201).json({ photo: r });

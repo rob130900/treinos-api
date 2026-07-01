@@ -127,8 +127,8 @@ router.post('/', async (req, res) => {
 
     const r = (await query(
       `INSERT INTO messages
-         (trainer_id, student_id, sender_role, kind, exercise_name, workout_id, body, media_type, media_data, read_by_trainer, read_by_student)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+         (trainer_id, student_id, sender_role, kind, exercise_name, workout_id, body, media_type, media_data, read_by_trainer, read_by_student, personal_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $1) RETURNING *`,
       [
         trainerId, studentId, senderRole, finalKind,
         exercise_name || null, workout_id || null, text,
@@ -162,7 +162,7 @@ router.post('/models', async (req, res) => {
     const { exercise_name, label, media_data } = req.body || {};
     if (!media_data) return res.status(400).json({ error: 'Vídeo ausente.' });
     const r = (await query(
-      'INSERT INTO correction_videos (trainer_id, exercise_name, label, media_data) VALUES ($1,$2,$3,$4) RETURNING id, exercise_name, label, created_at',
+      'INSERT INTO correction_videos (trainer_id, exercise_name, label, media_data, personal_id) VALUES ($1,$2,$3,$4,$1) RETURNING id, exercise_name, label, created_at',
       [req.user.id, exercise_name || null, label || null, media_data]
     )).rows[0];
     return res.status(201).json({ model: r });

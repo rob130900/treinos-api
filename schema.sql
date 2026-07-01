@@ -206,3 +206,63 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS idx_payments_trainer ON payments(trainer_id);
 CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id);
+
+-- ============================================================
+-- MULTI-TENANT (Fases 1-3) — personal_id explícito em toda tabela.
+-- Aditivo e idempotente. NÃO habilita RLS aqui (isso é a Fase 5,
+-- só depois do backend setar o contexto do tenant). Não afeta o app atual.
+-- ============================================================
+
+-- Identidade externa do personal (link/QR sem expor id sequencial)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS slug      VARCHAR(40);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id UUID DEFAULT gen_random_uuid();
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_slug     ON users(slug)      WHERE slug IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_publicid ON users(public_id) WHERE public_id IS NOT NULL;
+
+-- personal_id (o TENANT) em cada tabela de domínio
+ALTER TABLE users             ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE workouts          ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE exercises         ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE custom_exercises  ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE workout_logs      ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE exercise_logs     ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE messages          ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE correction_videos ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE measurements      ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE progress_photos   ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+ALTER TABLE payments          ADD COLUMN IF NOT EXISTS personal_id INTEGER;
+
+-- Backfill (idempotente: só onde ainda está nulo)
+UPDATE users SET personal_id = CASE WHEN role='trainer' THEN id ELSE trainer_id END WHERE personal_id IS NULL;
+UPDATE workouts          SET personal_id = trainer_id WHERE personal_id IS NULL;
+UPDATE messages          SET personal_id = trainer_id WHERE personal_id IS NULL;
+UPDATE payments          SET personal_id = trainer_id WHERE personal_id IS NULL;
+UPDATE custom_exercises  SET personal_id = trainer_id WHERE personal_id IS NULL;
+UPDATE correction_videos SET personal_id = trainer_id WHERE personal_id IS NULL;
+UPDATE exercises e     SET personal_id = w.personal_id FROM workouts w WHERE e.workout_id = w.id AND e.personal_id IS NULL;
+UPDATE workout_logs l  SET personal_id = w.personal_id FROM workouts w WHERE l.workout_id = w.id AND l.personal_id IS NULL;
+UPDATE exercise_logs l SET personal_id = w.personal_id FROM workouts w WHERE l.workout_id = w.id AND l.personal_id IS NULL;
+UPDATE measurements m    SET personal_id = u.trainer_id FROM users u WHERE m.student_id = u.id AND m.personal_id IS NULL;
+UPDATE progress_photos p SET personal_id = u.trainer_id FROM users u WHERE p.student_id = u.id AND p.personal_id IS NULL;
+
+-- Slug do personal (nome sem acento + id para unicidade)
+UPDATE users SET slug =
+  trim(both '-' from regexp_replace(
+    lower(translate(name,
+      'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇáàâãäéèêëíìîïóòôõöúùûüç',
+      'AAAAAEEEEIIIIOOOOOUUUUCaaaaaeeeeiiiiooooouuuuc')),
+    '[^a-z0-9]+', '-', 'g'))
+  || '-' || id
+  WHERE role='trainer' AND slug IS NULL;
+
+-- Índices compostos começando por personal_id (o filtro mais comum)
+CREATE INDEX IF NOT EXISTS idx_workouts_tenant  ON workouts(personal_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_exercises_tenant ON exercises(personal_id, workout_id);
+CREATE INDEX IF NOT EXISTS idx_customex_tenant  ON custom_exercises(personal_id);
+CREATE INDEX IF NOT EXISTS idx_wlogs_tenant     ON workout_logs(personal_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_exlogs_tenant    ON exercise_logs(personal_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant  ON messages(personal_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_corrvid_tenant   ON correction_videos(personal_id);
+CREATE INDEX IF NOT EXISTS idx_meas_tenant      ON measurements(personal_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_photos_tenant    ON progress_photos(personal_id, student_id);
+CREATE INDEX IF NOT EXISTS idx_payments_tenant  ON payments(personal_id, student_id);
