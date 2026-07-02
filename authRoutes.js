@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { query } from './db.js';
 import { authRequired, JWT_SECRET } from './authMiddleware.js';
 import { asaasConfigured, ensureCustomer } from './asaas.js';
+import { validCPF, cpfHash, cpfLast3, badgeFor } from './cpf.js';
 
 const router = Router();
 
@@ -15,6 +16,8 @@ function publicUser(u) {
   return {
     id: u.id, name: u.name, email: u.email, role: u.role,
     trainer_id: u.trainer_id, invite_code: u.invite_code || null,
+    account_type: u.account_type || null, cref: u.cref || null,
+    cref_status: u.cref_status || 'nao_informado', badge: badgeFor(u),
   };
 }
 
@@ -34,11 +37,22 @@ async function generateInviteCode(name) {
 
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, invite_code } = req.body;
+    const { name, email, password, role, invite_code, account_type, cref, phone, birth_date, cpf } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nome, email e senha sao obrigatorios.' });
     }
+    // CPF obrigatório: valida dígitos + antiduplicidade (por hash, sem guardar em claro)
+    const cpfDigits = String(cpf || '').replace(/\D/g, '');
+    if (!cpfDigits) return res.status(400).json({ error: 'CPF é obrigatório.' });
+    if (!validCPF(cpfDigits)) return res.status(400).json({ error: 'CPF inválido. Confira os números.' });
+    const chash = cpfHash(cpfDigits);
+    const cpfDup = await query('SELECT 1 FROM users WHERE cpf_hash = $1', [chash]);
+    if (cpfDup.rows.length) return res.status(409).json({ error: 'Este CPF já está cadastrado.' });
+
     const finalRole = role === 'trainer' ? 'trainer' : 'student';
+    const acctType = finalRole === 'trainer' ? (account_type || 'personal_trainer') : null;
+    const crefVal = finalRole === 'trainer' && cref ? String(cref).trim() : null;
+    const crefStatus = crefVal ? 'em_analise' : 'nao_informado';
 
     // Aluno que se cadastra sozinho precisa do código do personal
     // Código do personal é opcional no cadastro — o aluno pode vincular depois no app
@@ -59,9 +73,11 @@ router.post('/register', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await query(
-      `INSERT INTO users (name, email, password_hash, role, trainer_id, personal_id)
-       VALUES ($1, $2, $3, $4, $5, $5) RETURNING *`,
-      [name, email.toLowerCase(), hash, finalRole, trainerId]
+      `INSERT INTO users (name, email, password_hash, role, trainer_id, personal_id,
+         account_type, cref, cref_status, phone, birth_date, cpf_hash, cpf_last3)
+       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [name, email.toLowerCase(), hash, finalRole, trainerId,
+       acctType, crefVal, crefStatus, phone || null, birth_date || null, chash, cpfLast3(cpfDigits)]
     );
     const user = result.rows[0];
 
@@ -117,13 +133,14 @@ router.get('/me', authRequired, async (req, res) => {
     catch (e) { console.error('invite code (me)', e.message); }
   }
 
-  let trainerName = null;
+  let trainerName = null; let trainerBadge = null;
   if (u.role === 'student' && u.trainer_id) {
-    const t = (await query('SELECT name FROM users WHERE id = $1', [u.trainer_id])).rows[0];
+    const t = (await query('SELECT name, cref, cref_status, account_type, email_verified, phone_verified FROM users WHERE id = $1', [u.trainer_id])).rows[0];
     trainerName = t?.name || null;
+    trainerBadge = badgeFor(t);
   }
 
-  return res.json({ user: { ...publicUser(u), trainer_name: trainerName } });
+  return res.json({ user: { ...publicUser(u), trainer_name: trainerName, trainer_badge: trainerBadge } });
 });
 
 // Aluno vincula um personal pelo código (só se ainda não tiver vínculo)

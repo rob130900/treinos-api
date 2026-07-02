@@ -40,6 +40,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS asaas_wallet_id VARCHAR(60);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code VARCHAR(16);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite ON users(invite_code) WHERE invite_code IS NOT NULL;
 
+-- Contas: tipo, CREF opcional (selo), CPF por hash (validação + antiduplicidade, sem guardar em claro)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type VARCHAR(30);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cref        VARCHAR(40);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cref_status VARCHAR(20) DEFAULT 'nao_informado';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf_hash    CHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf_last3   CHAR(3);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_cpfhash ON users(cpf_hash) WHERE cpf_hash IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS workouts (
   id             SERIAL PRIMARY KEY,
   trainer_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
