@@ -1,7 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 
+import { pool, tenantStore } from './db.js';
+import { JWT_SECRET } from './authMiddleware.js';
 import authRoutes from './authRoutes.js';
 import studentRoutes from './studentRoutes.js';
 import workoutRoutes from './workoutRoutes.js';
@@ -22,6 +25,23 @@ const origins = corsOrigin === '*' ? '*' : corsOrigin.split(',').map((s) => s.tr
 app.use(cors({ origin: origins }));
 
 app.use(express.json({ limit: '25mb' })); // vídeos curtos em base64
+
+// Multi-tenant: se a request tem token válido, estabelece o contexto do tenant
+// (personal_id) para toda a request. A partir daí a RLS filtra por tenant.
+// O personal_id vem do banco (à prova de token defasado quando o aluno vincula depois).
+app.use(async (req, res, next) => {
+  const h = req.headers.authorization || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  if (!token) return next();
+  let uid;
+  try { uid = jwt.verify(token, JWT_SECRET).id; } catch { return next(); }
+  let pid = null;
+  try {
+    const r = await pool.query('SELECT personal_id FROM users WHERE id = $1', [uid]);
+    pid = r.rows[0]?.personal_id ?? null;
+  } catch { /* segue sem contexto */ }
+  tenantStore.run({ personalId: pid }, () => next());
+});
 
 app.get('/', (req, res) => res.json({ status: 'ok', service: 'treinos-api' }));
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

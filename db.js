@@ -1,5 +1,6 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 dotenv.config();
 
@@ -29,4 +30,27 @@ if (process.env.PGHOST) {
 
 export const pool = new Pool(config);
 
-export const query = (text, params) => pool.query(text, params);
+// Contexto de tenant por request (multi-tenant): guarda o personal_id atual.
+export const tenantStore = new AsyncLocalStorage();
+
+// Query padrão. Se houver tenant no contexto, roda numa transação curta que
+// seta app.personal_id (LOCAL) — a RLS do Postgres filtra por tenant sozinha.
+// Sem contexto (login, webhook, rotas públicas), roda direto no pool.
+export async function query(text, params) {
+  const store = tenantStore.getStore();
+  const pid = store?.personalId;
+  if (pid == null) return pool.query(text, params);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT set_config('app.personal_id', $1, true)", [String(pid)]);
+    const r = await client.query(text, params);
+    await client.query('COMMIT');
+    return r;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}

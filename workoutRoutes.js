@@ -53,6 +53,7 @@ router.post('/', requireAccess(), async (req, res) => {
     }
 
     await client.query('BEGIN');
+    await client.query("SELECT set_config('app.personal_id', $1, true)", [String(req.user.id)]);
     const wResult = await client.query(
       `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date, personal_id)
        VALUES ($1, $2, $3, $4, $5, $1) RETURNING id`,
@@ -104,6 +105,7 @@ router.post('/:id/duplicate', requireAccess(), async (req, res) => {
     if (!owns.rows.length) return res.status(404).json({ error: 'Aluno nao encontrado.' });
 
     await client.query('BEGIN');
+    await client.query("SELECT set_config('app.personal_id', $1, true)", [String(req.user.id)]);
     const nw = await client.query(
       `INSERT INTO workouts (trainer_id, student_id, title, description, scheduled_date, personal_id)
        VALUES ($1, $2, $3, $4, NULL, $1) RETURNING id`,
@@ -287,6 +289,7 @@ router.put('/:id', requireAccess(), async (req, res) => {
     if (!title) { client.release(); return res.status(400).json({ error: 'Título é obrigatório.' }); }
 
     await client.query('BEGIN');
+    await client.query("SELECT set_config('app.personal_id', $1, true)", [String(req.user.id)]);
     await client.query(
       'UPDATE workouts SET title = $1, description = $2, scheduled_date = $3 WHERE id = $4',
       [title, description || null, scheduled_date || null, workoutId]
